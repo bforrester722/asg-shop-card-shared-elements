@@ -1,0 +1,387 @@
+/**
+ * `asg-shop-card-details`
+ * 
+ * events:
+ *        use this event to fix a blip in the exit ripple on safari
+ *        the underlying element should update its background-color
+ *        with the color passed in event detail
+ *        'asg-shop-card-details-ios-flicker-fix-on-close', {color}
+ *
+ *        use this event to update selected props of the card-item that opened details
+ *        'asg-shop-card-details-closing', {card}
+ *
+ *
+ * methods:
+ *
+ *        open(detail) accepts the event detail from 'asg-shop-card-item-open-details' event
+ *        returns a promise that resolves when all opening animations are complete
+ *      
+ *
+ * @customElement
+ * @polymer
+ * @demo demo/index.html
+ */
+import {AppElement, html} from '@smyd/app-shared/app-element.js';
+import {
+  listen, 
+  schedule, 
+  wait
+}                 from '@smyd/app-functions/utils.js';
+import {clamp}    from '@smyd/app-functions/lambda.js';
+import htmlString from './asg-shop-card-controls.html';
+import '@smyd/asg-shop-card-shared-elements/asg-shop-condition-selector.js';
+import '@smyd/asg-icons/asg-icons.js';
+import '@polymer/paper-icon-button/paper-icon-button.js';
+import '@polymer/paper-ripple/paper-ripple.js';
+import '@polymer/paper-toggle-button/paper-toggle-button.js';
+import '@polymer/paper-input/paper-input.js';
+
+
+const format = (num, qty) => 
+  (Number(num) * Math.max(1, qty)).toFixed(2);
+
+const displayedPrice = ({price, sale}, qty) => {
+  const displayed = sale && sale !== '0' ? sale : price; 
+  // 'No Price' string must be as short as possilbe to
+  // avoid breaking condition selector styles on very small screens
+  return displayed ? `$ ${format(displayed, qty)}` : 'No Price'; 
+};
+
+const displayedBuylistPrice = ({price}, qty, buylistRules) => {
+  if (!buylistRules) { return; }
+  const buylistPercent = buylistRules.all.price;
+  return  `$ ${format(price * buylistPercent / 100, qty)}` ;
+};
+
+
+class ASGShopCardControls extends AppElement {
+  static get is() { return 'asg-shop-card-controls'; }
+
+  static get template() {
+    return html([htmlString]);
+  }
+
+
+  static get properties() {
+    return {
+
+      buylistRules: Object,   
+
+      card: Object,
+
+      isBuylist: {
+        type: Boolean, 
+        value: false
+      },
+      //for computing search for classes
+      search: Boolean,
+
+      selectorFrom: String,
+        
+      _availableQuantity: {
+        type: Number,
+        value: 0,
+        computed: '__computeAvailQty(_condition, card.notFoil, card.foil, _foilChecked, isBuylist)'
+      },
+
+      _condition: {
+        type: String,
+        value: 'Near Mint',
+        computed: '__computeCondition(card, _foilChecked)'
+      },
+
+      _conditionBuylistPrice: {
+        type: String,
+        value: '',
+        computed: '__computeBuylistCondPrice(_condition, card.notFoil, card.foil, _foilChecked, _quantity, buylistRules)'
+      },
+
+      _conditionPrice: {
+        type: String,
+        value: '',
+        computed: '__computeCondPrice(_condition, card.notFoil, card.foil, _foilChecked, _quantity)'
+      },
+      
+      _foilChecked: {
+        type: Boolean,
+        value: false
+      },
+      // true if there are only foil cards available
+      _initialFoilChecked: {
+        type: Boolean,
+        value: false,
+        computed: '__computeInitialFoilChecked(card)'
+      },
+
+      _quantity: {
+        type: Number,
+        value: 0
+      },
+       
+      _inputDisabled: {
+        type: Boolean,
+        computed: '__computeInputDisabled(_availableQuantity, _conditionPrice)'
+      } 
+      
+    };
+  }
+
+
+  static get observers() {
+    return [
+      '__priceChanged(_conditionPrice)',
+      '__inputDisabledChanged(_inputDisabled)',
+      '__cardChanged(card)',
+      '__initialFoilCheckedChanged(_initialFoilChecked)'
+    ];
+  }
+
+
+  connectedCallback() {
+    super.connectedCallback();
+    listen(
+      this, 
+      'asg-shop-condition-selector-selected', 
+      this.__conditionSelectedChanged.bind(this)
+    );
+    // one time setup since the __computePriceHideClass
+    // sets this class before first entry animation should take place
+    this.$.price.classList.remove('entry');
+  }
+
+
+
+  // adds search classes for asg-shop-card-item 
+  __computeSearch(search) {
+    return search ? 'search' : '';
+  }
+  
+  // condition defaults to highest available condition
+  __computeCondition(card, foilChecked) {
+    if (!card) { return 'Near Mint'; }
+    const isFoil = foilChecked ? 'foil' : 'notFoil';
+    const keys = [
+      'Near Mint', 
+      'Lightly Played', 
+      'Moderately Played', 
+      'Heavily Played'
+    ];
+    const sorted = keys.map(key => 
+                    ({...card[isFoil][key], key}));
+    const answer = sorted.find(card => {
+      if (card.qty === 0) { return false; }
+      if (card.cartQty && card.qty === card.cartQty) { 
+        return false; 
+      }
+      return true; 
+    });
+    return answer ? answer.key : 'Near Mint';
+  }
+
+  // favor sale price over market price
+  __computeCondPrice(condition, nonFoilConditions, foilConditions, foil, qty) {
+    if (!condition) { return; }
+    if (foil) {
+      if (!foilConditions) { return ''; }
+      return displayedPrice(foilConditions[condition], qty);
+    }
+    if (!nonFoilConditions) { return ''; }
+    return displayedPrice(nonFoilConditions[condition], qty);
+  }
+
+  // computes priceing base on all price
+  __computeBuylistCondPrice(condition, nonFoilConditions, foilConditions, foil, qty, buylistRules) {
+    if (!condition) { return; }
+    if (foil) {
+      if (!foilConditions) { return ''; }
+      return displayedBuylistPrice(foilConditions[condition], qty, buylistRules);
+    }
+    if (!nonFoilConditions) { return ''; }
+    return displayedBuylistPrice(nonFoilConditions[condition], qty, buylistRules);
+  }
+
+
+
+  __computeQtyVal(card, quantity = 0) {
+    if (!card || !card.selected) { 
+      return quantity > 0 ? quantity : 1; 
+    }
+    return quantity > 0 ? quantity : card.selected.qty;
+  }
+
+
+  __computeAvailQty(condition, nonFoilConditions, foilConditions, foil, isBuylist) {
+    if (isBuylist) { return 100; } 
+    if (!condition) { return 0; }
+    const getQty = ({available, qty}) => {
+      if (typeof available === 'number') {
+        return available;
+      }
+      return Number(qty) > 0 ? Number(qty) : 0;
+    };
+    if (foil) {
+      if (!foilConditions) { return 0; }
+      return getQty(foilConditions[condition]);
+    }
+    if (!nonFoilConditions) { return 0; }
+    return getQty(nonFoilConditions[condition]);
+  }
+
+
+  __computePriceDisabledClass(available) {
+    return available ? '' : 'disabled';
+  }
+
+
+  __computeInputHideClass(qty, price) {
+    return qty && price && price !== '0' ? '' : 'hide';
+  }
+
+
+  __computePriceHideClass(price) {
+    return price && price !== '0' && price !== 'No Price' ? 'entry' : 'hide';
+  }
+
+
+  __computeInputDisabled(qty, price) {
+    if (price === 'No Price') { return true; }
+    return !qty || !price || price === '0';
+  }
+  
+
+  __conditionSelectedChanged(event) {
+    this._condition = event.detail.value;
+  }
+
+
+  __computeNotAvailableWording(card, condition, foilChecked) {
+    if (!card) { return; }
+    const isFoil           = foilChecked ? 'foil' : 'notFoil';
+    const {qty, available} = card[isFoil][condition];
+    return available === 0 && qty > 0 ? 'All Available In Cart' : 'Sold Out'; 
+  }
+  // one time initialization of toogle button state
+  // show user foil pricing/qtys if there are no standard
+  // cards available but foil cards are available
+  __computeInitialFoilChecked(card) {
+    if (!card) { return false; }
+    if (!card.nonfoil) { return true; }
+    const {foil, notFoil} = card;
+    const standardVals    = Object.values(notFoil);
+    const standardHasQtys = standardVals.some(obj => Number(obj.qty) > 0);
+    if (standardHasQtys) { return false; }
+    const foilVals   = Object.values(foil);
+    const foilHasQty = foilVals.some(obj => Number(obj.qty) > 0);
+    return foilHasQty;
+  }
+  // fixes a bug where the description will not be displayed
+  // if a card is removed from cart, listener in asg-shop-card-item
+  __cardChanged(card) {
+    if (!card) { return; }
+    this._quantity = 1; // reset input each time card changes
+    this.fire('asg-shop-card-controls-card-changed');
+  }
+
+
+  async __inputDisabledChanged(disabled) {
+    await schedule();
+    this.fire('asg-card-controls-hide-add-to-cart', {disabled});
+  }
+
+
+  __priceChanged(price) {
+    if (!price) { return; }
+    this.fire('open-asg-shop-card-details-fab');
+  }
+  // toggle to foil pricing/qtys if no standard cards
+  // are in stock but foils are
+  __initialFoilCheckedChanged(checked) {
+    if (checked) {
+      this._foilChecked = true;
+    }
+  }
+
+
+  __foilToggleChanged(event) {
+    this._foilChecked = event.detail.value;
+  }
+
+
+  __qtyInputChanged() {
+    const value    = Number(this.$.qty.value);
+    // force update to input value via __computeQtyVal
+    this._quantity = undefined; 
+    this._quantity = clamp(1, this._availableQuantity, value);
+  }
+
+
+  async __conditionButtonClicked() {
+    try {
+      await this.clicked();
+      this.$.condition.open();
+      this.$.condition.style.pointerEvents = 'all';
+    }
+    catch (error) {
+      if (error === 'click debounced') { return; }
+      console.error(error);
+    }
+  }
+
+
+  __setFocusOnQtyInput() {
+    this.$.qty.focus();
+  }
+
+  //called from asg-shop-card-details
+  closeConditionSelector(event) {
+    this.$.condition.close();
+  }
+
+  // builds card object to add it to cart. called from details, item, and big-card
+  addSelectedToCard() {
+    const card = Object.assign(
+      {}, 
+      this.card, 
+      {
+        selected: {
+          condition: this._condition, 
+          foil:      this._foilChecked,
+          qty:       Math.max(Number(this._quantity), 1)
+        }
+      }
+    );
+    this._quantity = 1; // reset input
+    return card;
+  }
+
+
+  enterActions() {
+    this.$.conditionBtn.classList.add('entry');
+    this.$.conditionText.classList.add('entry');
+    this.$.qtyBtn.classList.add('entry');
+    this.$.qty.classList.add('entry');
+    this.$.dropDownIcon.classList.add('entry');
+    this.$.qtyNotAvail.classList.add('entry');
+    this.$.qtyText.classList.add('entry');
+    this.$.foilBtn.classList.add('entry');
+    this.$.foilText.classList.add('entry');
+    this.$.price.classList.add('entry');
+  }
+
+
+  hideActions() {
+    this.$.conditionBtn.classList.remove('entry');
+    this.$.conditionText.classList.remove('entry');
+    this.$.qtyBtn.classList.remove('entry');
+    this.$.qty.classList.remove('entry');
+    this.$.dropDownIcon.classList.remove('entry');
+    this.$.qtyNotAvail.classList.remove('entry');
+    this.$.qtyText.classList.remove('entry');
+    this.$.foilBtn.classList.remove('entry');
+    this.$.foilText.classList.remove('entry');
+    this.$.price.classList.remove('entry');
+  }
+
+}
+
+window.customElements.define(ASGShopCardControls.is, ASGShopCardControls);
