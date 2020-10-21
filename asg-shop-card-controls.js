@@ -29,13 +29,12 @@ import {
 }                 from '@smyd/app-functions/utils.js';
 import {clamp}    from '@smyd/app-functions/lambda.js';
 import htmlString from './asg-shop-card-controls.html';
-import '@smyd/asg-shop-card-shared-elements/asg-shop-condition-selector.js';
 import '@smyd/asg-icons/asg-icons.js';
 import '@polymer/paper-icon-button/paper-icon-button.js';
 import '@polymer/paper-ripple/paper-ripple.js';
 import '@polymer/paper-toggle-button/paper-toggle-button.js';
 import '@polymer/paper-input/paper-input.js';
-
+import './asg-shop-condition-selector.js';
 
 const format = (num, qty) => 
   (Number(num) * Math.max(1, qty)).toFixed(2);

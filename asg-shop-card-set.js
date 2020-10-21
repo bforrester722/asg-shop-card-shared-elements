@@ -13,7 +13,7 @@ import {
   curry,
   join,
   map
-}                 from '@smyd/app-functionsa/lambda.js';
+}                 from '@smyd/app-functions/lambda.js';
 import {schedule} from '@smyd/app-functions/utils.js';
 import htmlString from './asg-shop-card-set.html';
 import services   from '@smyd/app-functions/services.js';

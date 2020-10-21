@@ -1,6 +1,6 @@
 {
   "name": "@smyd/asg-shop-card-shared-elements",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Shared elements for asg shop cards",
   "main": "index.js",
   "scripts": {
